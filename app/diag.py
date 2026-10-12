@@ -103,8 +103,14 @@ def _test_bridge():
         from .api import JsApi
 
         w = webview.windows[0] if webview.windows else None
-        log(f"[自检] webview.windows[0] = {type(w).__name__ if w else None}；"
-            f"create_file_dialog={'有' if hasattr(w, 'create_file_dialog') else '无'}")
+        from .api import _window
+
+        w2 = _window()
+        log(f"[自检] webview.windows 长度={len(webview.windows)}；_window() 取到="
+            f"{type(w2).__name__ if w2 else None}；"
+            f"create_file_dialog={'有' if w2 is not None and hasattr(w2, 'create_file_dialog') else '无'}")
+        if w2 is not None and w is None:
+            log("[自检] 注意：pywebview 的 windows 列表在本线程为空，已由模块级兜底引用接管")
         if w is not None:
             try:
                 # 语音引擎要调用一次 getVoices 才会初始化，先预热再读

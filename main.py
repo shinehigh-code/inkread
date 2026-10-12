@@ -65,6 +65,10 @@ def main():
         height=int(win_cfg.get("h", 780)),
         min_size=(960, 600),
     )
+    # 记到模块级（不是 JsApi 属性），供原生对话框使用
+    from app import api as api_module
+
+    api_module.set_window(window)
 
     def _save_window_state():
         try:

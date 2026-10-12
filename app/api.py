@@ -16,6 +16,28 @@ FILE_TYPES = (
     "所有文件 (*.*)",
 )
 
+# 窗口引用存在模块级，**不能**挂在 JsApi 实例上：
+# pywebview 会递归展开 js_api 的所有公开属性，持有 Window / .NET 对象会导致窗口卡死。
+_WINDOW = None
+
+
+def set_window(window) -> None:
+    """由 main.py 在创建窗口后调用。"""
+    global _WINDOW
+    _WINDOW = window
+
+
+def _window():
+    """取当前窗口：优先 pywebview 的窗口列表，取不到时用建窗时记下的引用。"""
+    import webview
+
+    try:
+        if webview.windows:
+            return webview.windows[0]
+    except Exception:
+        pass
+    return _WINDOW
+
 
 def _dlg(name: str):
     """取对话框常量，优先用新版 FileDialog，兼容旧版 OPEN_DIALOG。"""
@@ -25,15 +47,6 @@ def _dlg(name: str):
     if fd is not None:
         return getattr(fd, name)
     return getattr(webview, name)
-
-
-def _window():
-    """取当前窗口。不要把它缓存到 self 上（见模块说明）。"""
-    import webview
-
-    if not webview.windows:
-        return None
-    return webview.windows[0]
 
 
 class JsApi:

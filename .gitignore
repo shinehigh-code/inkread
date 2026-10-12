@@ -1,0 +1,23 @@
+# 运行时数据：含本机文件的绝对路径与阅读记录，禁止入库
+.appdata/
+.devdata/
+.diagdata/
+.testdata/
+*.log
+
+# 构建产物
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# 生成的样例书籍与截图（用 python samples/make_samples.py 重新生成）
+samples/*.txt
+samples/*.md
+samples/*.epub
+samples/*.cbz
+samples/*.7z
+samples/comic_folder/
+samples/_cover.png
+shots/

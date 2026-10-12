@@ -1,0 +1,11 @@
+pywebview
+pillow
+markdown
+bleach
+opencc-python-reimplemented
+beautifulsoup4
+py7zr
+rarfile
+
+# 仅打包需要
+pyinstaller

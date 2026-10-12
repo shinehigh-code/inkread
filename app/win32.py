@@ -31,22 +31,34 @@ ENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
 
 def hwnd() -> int:
-    """取本进程的可见顶层窗口句柄。"""
+    """取本进程的主窗口句柄。
+
+    同一进程里可能还有 WebView2 的辅助小窗口（也有标题、也可见），
+    所以按**可见面积最大**来挑选，而不是拿第一个匹配的。
+    """
     global _hwnd_cache
     if _hwnd_cache and user32.IsWindow(_hwnd_cache):
         return _hwnd_cache
     pid = os.getpid()
-    found: list[int] = []
+    best = {"area": 0, "hwnd": 0}
 
     def cb(h, _lp):
         wpid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(h, ctypes.byref(wpid))
-        if wpid.value == pid and user32.IsWindowVisible(h) and user32.GetWindowTextLengthW(h) > 0:
-            found.append(h)
+        if wpid.value != pid or not user32.IsWindowVisible(h):
+            return True
+        if user32.GetWindowTextLengthW(h) <= 0:
+            return True
+        r = RECT()
+        user32.GetWindowRect(h, ctypes.byref(r))
+        area = (r.right - r.left) * (r.bottom - r.top)
+        if area > best["area"]:
+            best["area"] = area
+            best["hwnd"] = h
         return True
 
     user32.EnumWindows(ENUMPROC(cb), 0)
-    _hwnd_cache = found[0] if found else 0
+    _hwnd_cache = best["hwnd"]
     return _hwnd_cache
 
 

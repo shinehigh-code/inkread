@@ -22,6 +22,7 @@ EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPAR
 
 
 def _own_windows() -> list[tuple[int, str, tuple[int, int, int, int]]]:
+    """本进程的可见顶层窗口，按面积从大到小排序（主窗口在最前）。"""
     pid = os.getpid()
     out = []
 
@@ -39,6 +40,7 @@ def _own_windows() -> list[tuple[int, str, tuple[int, int, int, int]]]:
         return True
 
     user32.EnumWindows(EnumWindowsProc(cb), 0)
+    out.sort(key=lambda x: x[2][2] * x[2][3], reverse=True)
     return out
 
 

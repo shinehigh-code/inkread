@@ -28,10 +28,11 @@ def main():
             if exe.lower().endswith("墨读.exe") or exe.lower().endswith("墨读dbg.exe"):
                 hit = True
             elif args:
-                last = str(args[-1]).lower().replace("/", "\\")
-                if last.endswith("main.py") or last.endswith("run_dev.py"):
+                # 不能只看最后一个参数：带文件启动时最后一个是书路径（main.py 后面跟书）
+                joined = [str(a).lower().replace("/", "\\") for a in args]
+                if any(a.endswith("main.py") or a.endswith("run_dev.py") for a in joined):
                     # 只认本项目的脚本
-                    if any("inkread" in str(a).lower() for a in args):
+                    if any("inkread" in a for a in joined):
                         hit = True
             if hit:
                 killed.append((pid, name))

@@ -81,6 +81,13 @@ async function openReader(id) {
   document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
 }
 
+// 后端在「窗口已开着、又用墨读打开另一个文件」时会调用它跳转（见 main.py 的 _navigate）
+window.__inkreadOpen = (id) => {
+  const target = `#/read/${id}`;
+  if (location.hash === target) route(); // 同一本已打开：强制重走一次路由
+  else location.hash = target;
+};
+
 // ---------------------------------------------------------------- 添加图书
 
 async function addFiles() {

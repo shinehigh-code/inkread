@@ -42,9 +42,14 @@ ASSET_NAME = env("ASSET_NAME", "inkread-windows-x64.exe")
 DRY = env("DRY_RUN") == "1"
 
 DESCRIPTION = "墨读 InkRead —— Windows 本地电子书与漫画阅读器（TXT/MD/EPUB/CBZ/CBR/CB7，离线、无网络请求）"
-RELEASE_BODY = """## 墨读 InkRead v1.0.0
+RELEASE_BODY = f"""## 墨读 InkRead {TAG}
 
 Windows 下的本地电子书与漫画阅读器，单文件绿色版，双击即用。
+
+**本次更新（{TAG}）**
+- 修复：在资源管理器里「用墨读打开」任意电子书时，窗口只停在书库首页、并不会打开这本书
+- 新增：窗口已经开着时再打开另一个文件，会直接在当前窗口切换过去（不再多开一个进程）
+- 新增：用这种方式打开时会把窗口提到最前
 
 **格式**：TXT / Markdown / EPUB / CBZ / CBR / CB7 / CBT / 图片文件夹
 

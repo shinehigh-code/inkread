@@ -12,8 +12,11 @@ from ctypes import wintypes
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
+SWP_SHOWWINDOW = 0x0040
 SW_MINIMIZE = 6
 SW_RESTORE = 9
 WM_CLOSE = 0x0010
@@ -146,6 +149,42 @@ def minimize() -> None:
     h = hwnd()
     if h:
         user32.ShowWindow(h, SW_MINIMIZE)
+
+
+def bring_to_front() -> bool:
+    """把窗口提到最前并激活。
+
+    「用墨读打开」第二个文件时，文件是转交给已经在跑的窗口的 —— 那个窗口
+    可能被别的程序盖住或者最小化，不主动置顶的话用户会以为点了没反应。
+    """
+    h = hwnd()
+    if not h:
+        return False
+    if user32.IsIconic(h):
+        user32.ShowWindow(h, SW_RESTORE)
+
+    # 前台窗口属于别的进程时，SetForegroundWindow 会被系统拒绝，
+    # 需要临时把自己的线程输入挂到当前前台窗口线程上。
+    fg = user32.GetForegroundWindow()
+    tid_self = user32.GetCurrentThreadId()
+    tid_fg = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+    attached = False
+    try:
+        if tid_fg and tid_fg != tid_self:
+            attached = bool(user32.AttachThreadInput(tid_fg, tid_self, True))
+        user32.BringWindowToTop(h)
+        user32.SetForegroundWindow(h)
+        user32.SetWindowPos(h, 0, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+    except Exception:
+        return False
+    finally:
+        if attached:
+            try:
+                user32.AttachThreadInput(tid_fg, tid_self, False)
+            except Exception:
+                pass
+    return bool(user32.GetForegroundWindow() == h)
 
 
 def close() -> None:

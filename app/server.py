@@ -38,6 +38,8 @@ class Ctx:
     def __init__(self):
         self.lib = Library()
         self.settings = json.loads(json.dumps(DEFAULT_SETTINGS))
+        # 由 main 注入：运行中收到新文件时，通知前端跳到对应书籍
+        self.navigate = None
         self._load_settings()
 
     def _load_settings(self):
@@ -167,6 +169,30 @@ class Handler(BaseHTTPRequestHandler):
                 return f.read_bytes(), ctype
 
             return serve_static
+
+        # ---- 实例存活探测（「用墨读打开」第二个文件时用来找已运行的窗口）
+        if path == "/api/ping" and method == "GET":
+            return lambda qs, body, p: {"ok": True, "app": config.APP_NAME, "version": config.VERSION}
+
+        # ---- 运行中打开文件：入库并让前端跳过去
+        if path == "/api/open-file" and method == "POST":
+            def open_file(qs, body, p):
+                paths = body.get("paths") or []
+                if not isinstance(paths, list) or not paths:
+                    raise BookError("没有要打开的文件")
+                res = ctx.lib.add([str(x) for x in paths][:200])
+                if not res["added"]:
+                    msg = res["errors"][0].get("error") if res["errors"] else "无法打开该文件"
+                    raise BookError(msg)
+                bid = res["added"][0]["id"]
+                if callable(ctx.navigate):
+                    try:
+                        ctx.navigate(bid)
+                    except Exception:
+                        pass
+                return {"ok": True, "id": bid, "added": res["added"], "errors": res["errors"]}
+
+            return open_file
 
         # ---- 设置
         if path == "/api/settings":

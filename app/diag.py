@@ -85,6 +85,8 @@ def start(timeout_seconds: int = 25):
                     log(f"[自检] 心跳#{beat} 响应={'是' if ok else '否'} 线程数={threading.active_count()}")
                     if beat >= 3 and not captured and os.environ.get("INKREAD_CAPTURE"):
                         captured = _capture(hwnd)
+                    if beat == 4 or beat % 8 == 0:
+                        _probe_dom()
                     if beat == 5 and os.environ.get("INKREAD_SELFTEST"):
                         _test_bridge()
                 else:
@@ -157,10 +159,52 @@ def _test_bridge():
         log(f"[自检] 原生桥实测失败：{type(e).__name__}: {e}")
 
 
+def _probe_dom() -> None:
+    """问页面当前停在哪一屏，用于确认「用墨读打开」是否真的进了阅读器。
+
+    比截图可靠：截图会被别的程序挡住，DOM 状态不会。
+    """
+    try:
+        import webview
+
+        w = webview.windows[0] if webview.windows else None
+        if w is None:
+            from .api import _window
+
+            w = _window()
+        if w is None:
+            log("[自检] DOM 探测：取不到窗口")
+            return
+        info = w.evaluate_js(
+            "(() => {"
+            "  const r = document.querySelector('.reader');"
+            "  return {"
+            "    hash: location.hash,"
+            "    reader: !!r,"
+            "    kind: r ? (document.querySelector('.cm-stage') ? 'comic' : 'text') : '',"
+            "    chapter: ((document.querySelector('.ch-title') || {}).textContent || '').trim(),"
+            "    firstLine: ((document.querySelector('.flow p') || {}).textContent || '').trim().slice(0, 24),"
+            "  };"
+            "})()"
+        )
+        log(f"[自检] DOM 探测：{info}")
+    except Exception as e:
+        log(f"[自检] DOM 探测失败：{type(e).__name__}: {e}")
+
+
 def _capture(hwnd: int) -> bool:
     """把窗口区域截屏存盘，用于确认实际渲染效果（目录可用 INKREAD_CAPTURE_DIR 指定）。"""
     try:
         from PIL import ImageGrab
+
+        # 先把窗口提到最前，否则截到的是盖在上面的别的程序
+        try:
+            from .win32 import bring_to_front
+
+            bring_to_front()
+            time.sleep(0.8)
+        except Exception:
+            pass
 
         r = wintypes.RECT()
         user32.GetWindowRect(hwnd, ctypes.byref(r))

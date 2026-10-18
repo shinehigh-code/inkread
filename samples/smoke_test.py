@@ -10,7 +10,15 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ["INKREAD_HOME"] = str(ROOT / ".testdata")
+
+# 每次跑都从干净的数据目录开始，避免上一轮测试加进去的书影响数量断言
+_TESTDATA = ROOT / ".testdata"
+if _TESTDATA.exists():
+    import shutil
+
+    shutil.rmtree(_TESTDATA, ignore_errors=True)
+
+os.environ["INKREAD_HOME"] = str(_TESTDATA)
 
 from app.server import serve  # noqa: E402
 
@@ -37,14 +45,23 @@ def get(path: str):
 
 
 def post(path: str, body: dict):
+    import urllib.error
+
     req = urllib.request.Request(
         BASE + path,
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with _opener.open(req, timeout=10) as r:
-        return r.status, json.loads(r.read().decode("utf-8"))
+    try:
+        with _opener.open(req, timeout=10) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            return e.code, json.loads(raw)
+        except Exception:
+            return e.code, {"error": raw[:200]}
 
 
 # 1. 设置
@@ -133,6 +150,27 @@ if novel:
 # 9. 安全：静态路径穿越
 st, _, _ = get("/assets/../app/config.py")
 check("静态路径穿越被拒", st == 403, str(st))
+
+# 10. 运行中打开文件（「用墨读打开」第二个文件时走这条）
+st, raw, _ = get("/api/ping")
+r = json.loads(raw)
+check("实例存活探测", st == 200 and r.get("ok") is True, str(r)[:80])
+
+new_book = ROOT / "samples" / "cli_open.md"
+new_book.write_text("# 命令行打开测试\n\n这一章用来验证从外部打开文件。\n", "utf-8")
+st, r = post("/api/open-file", {"paths": [str(new_book)]})
+check("运行中打开文件", st == 200 and r.get("id") and r["added"][0]["title"] == "命令行打开测试", str(r)[:120])
+check("返回跳转用的书籍 id", st == 200 and len(str(r.get("id"))) == 12, str(r.get("id")))
+
+st, r = post("/api/open-file", {"paths": []})
+check("空路径被拒", st == 400, str(st))
+
+st, r = post("/api/open-file", {"paths": [str(ROOT / "samples" / "不存在.epub")]})
+check("无效路径被拒", st == 400 and "不存在" in str(r), str(r)[:80])
+try:
+    new_book.unlink()
+except OSError:
+    pass
 
 print(f"\n===== {len(passed)} 通过, {len(failed)} 失败 =====")
 if failed:

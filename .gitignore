@@ -21,3 +21,11 @@ samples/*.7z
 samples/comic_folder/
 samples/_cover.png
 shots/
+
+# 本地发布辅助脚本（含本机路径与代理端口，不入库）
+tools/publish.cmd
+
+# 命令行打开的临时测试数据
+.clidata/
+.clidata2/
+.clitest/

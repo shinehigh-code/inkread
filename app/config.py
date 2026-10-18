@@ -10,7 +10,7 @@ from pathlib import Path
 
 APP_ID = "InkRead"
 APP_NAME = "墨读"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 # 扩展名 -> 类型
 TEXT_EXTS = {"txt": "txt", "md": "md", "markdown": "md"}

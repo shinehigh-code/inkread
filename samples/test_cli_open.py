@@ -126,13 +126,14 @@ def main() -> int:
                 rid = line.rsplit("→", 1)[1].strip()
 
         # 前端真的进了阅读器（DOM 探测里有该书的 hash）
+        # 打包版首次启动可能被 Defender 扫描拖慢，这里给足 90 秒
         def dom_has(bid: str):
             for line in read_log().splitlines():
                 if "DOM 探测" in line and f"#/read/{bid}" in line and "'reader': True" in line:
                     return line
             return None
 
-        hit = wait_for(lambda: dom_has(rid), 45) if rid else None
+        hit = wait_for(lambda: dom_has(rid), 90, 1.0) if rid else None
         check("窗口直接进入阅读器", bool(hit), f"没等到 #/read/{rid} 的 DOM 探测")
 
         # ---- 2. 已开着时再打开另一个文件

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import sys
 import threading
@@ -175,15 +176,23 @@ def _probe_dom() -> None:
         if w is None:
             log("[自检] DOM 探测：取不到窗口")
             return
+        from . import config
+
+        sel = json.dumps(config.DRAG_REGION, ensure_ascii=False)
         info = w.evaluate_js(
             "(() => {"
             "  const r = document.querySelector('.reader');"
+            f"  const sel = {sel};"
+            "  const regions = Array.from(document.querySelectorAll(sel));"
+            "  const slider = document.querySelector('#pgsld');"
             "  return {"
             "    hash: location.hash,"
             "    reader: !!r,"
             "    kind: r ? (document.querySelector('.cm-stage') ? 'comic' : 'text') : '',"
             "    chapter: ((document.querySelector('.ch-title') || {}).textContent || '').trim(),"
             "    firstLine: ((document.querySelector('.flow p') || {}).textContent || '').trim().slice(0, 24),"
+            "    dragRegion: sel,"
+            "    sliderInDragRegion: slider ? regions.some((x) => x.contains(slider)) : null,"
             "  };"
             "})()"
         )

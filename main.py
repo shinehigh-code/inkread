@@ -171,10 +171,10 @@ def main():
         start_diag()
     win_cfg = httpd.ctx.settings.get("window") or {}
 
-    # 只允许标题栏/阅读器工具栏拖动窗口：pywebview 的 easy_drag 会让整窗任意位置都能拖动，
-    # 那会连带把「选中文字」变成拖窗口。这里关掉 easy_drag（见 create_window），
-    # 并用 DRAG_REGION_SELECTOR 精确限定可拖区域。
-    webview.settings["DRAG_REGION_SELECTOR"] = ".titlebar, .r-bar"
+    # 只允许顶部拖动窗口：pywebview 的 easy_drag 会让整窗任意位置都能拖动，
+    # 那会连带把「选中文字」和「拖进度条」变成拖窗口。这里关掉 easy_drag（见 create_window），
+    # 并用 DRAG_REGION_SELECTOR 限定区域（见 config.DRAG_REGION，底部栏必须排除）。
+    webview.settings["DRAG_REGION_SELECTOR"] = config.DRAG_REGION
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = False
 
     api = JsApi()

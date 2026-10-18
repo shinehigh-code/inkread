@@ -187,6 +187,13 @@ const { chromium } = require('playwright');
   const after2 = await page.evaluate(() => document.getElementById('reader').classList.contains('immersive'));
   ok('无面板时点正文进入沉浸', after2 === true, String(after2));
 
+  // 沉浸模式下工具栏是移出屏幕的（pointer-events:none），先动一下鼠标把它叫回来再点
+  await page.mouse.move(700, 300);
+  await page.mouse.move(740, 330);
+  await page.waitForTimeout(400);
+  const chromeBack = await page.evaluate(() => !document.getElementById('reader').classList.contains('immersive'));
+  ok('鼠标一动工具栏就回来', chromeBack === true, String(chromeBack));
+
   await page.click('[data-act="font"]');
   await page.waitForTimeout(250);
   await page.click('.pop-head [data-act="font"]');
@@ -204,6 +211,43 @@ const { chromium } = require('playwright');
   await page.waitForTimeout(500);
   const c1 = await page.textContent('#pglabel');
   ok('漫画滚轮翻页', c0 !== c1, `${c0} -> ${c1}`);
+
+  // ---------- 8. 窗口拖动区域：只能是顶部，进度条所在的底部栏绝不能算进去
+  // 选择器从 /api/ping 取，保证与 main.py 实际传给 pywebview 的是同一份
+  const ping = await (await fetch(base + '/api/ping')).json();
+  const dragSel = ping.dragRegion || '';
+  await page.goto(`${base}/#/read/${novel.id}`);
+  await page.waitForSelector('#pgsld');
+  await page.waitForTimeout(700); // 等章节加载与分页算完，否则拖动时还没有可跳的页
+  const drag = await page.evaluate((sel) => {
+    const regions = Array.from(document.querySelectorAll(sel));
+    const slider = document.querySelector('#pgsld');
+    const btm = document.querySelector('.r-bar.btm');
+    return {
+      sel,
+      count: regions.length,
+      topDraggable: !!document.querySelector('.r-bar:not(.btm)')?.matches(sel),
+      bottomDraggable: btm ? btm.matches(sel) : null,
+      sliderInRegion: slider ? regions.some((r) => r.contains(slider)) : null,
+      titlebarDraggable: !!document.querySelector('.titlebar')?.matches(sel),
+    };
+  }, dragSel);
+  ok('拖动区域选择器已下发', !!dragSel, JSON.stringify(drag));
+  ok('标题栏可拖动', drag.titlebarDraggable === true, JSON.stringify(drag));
+  ok('阅读器顶部栏可拖动', drag.topDraggable === true, JSON.stringify(drag));
+  ok('阅读器底部栏不可拖动', drag.bottomDraggable === false, JSON.stringify(drag));
+  ok('进度条不在拖动区域内', drag.sliderInRegion === false, JSON.stringify(drag));
+
+  // 再确认真的能拖：拖滑块应当改页码，而不是把窗口移走
+  const beforePage = await page.textContent('#pglabel');
+  const box = await page.locator('#pgsld').boundingBox();
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(700);
+  const afterPage = await page.textContent('#pglabel');
+  ok('拖动进度条能改变页码', beforePage !== afterPage, `${beforePage} -> ${afterPage}`);
 
   console.log('\n页面错误:', errs.length ? errs.slice(0, 5) : '(无)');
   await browser.close();

@@ -12,6 +12,10 @@ APP_ID = "InkRead"
 APP_NAME = "墨读"
 VERSION = "1.0.1"
 
+# 可拖动窗口的区域。只认顶部：标题栏 + 阅读器/漫画阅读器的顶部工具栏。
+# 注意必须排除底部栏（.r-bar.btm）—— 那里面有进度条，选中它会变成拖窗口。
+DRAG_REGION = ".titlebar, .r-bar:not(.btm)"
+
 # 扩展名 -> 类型
 TEXT_EXTS = {"txt": "txt", "md": "md", "markdown": "md"}
 COMIC_EXTS = {

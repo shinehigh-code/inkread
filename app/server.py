@@ -172,7 +172,13 @@ class Handler(BaseHTTPRequestHandler):
 
         # ---- 实例存活探测（「用墨读打开」第二个文件时用来找已运行的窗口）
         if path == "/api/ping" and method == "GET":
-            return lambda qs, body, p: {"ok": True, "app": config.APP_NAME, "version": config.VERSION}
+            return lambda qs, body, p: {
+                "ok": True,
+                "app": config.APP_NAME,
+                "version": config.VERSION,
+                # 窗口拖动区域，测试与自检拿它做断言（底部栏必须不在其中）
+                "dragRegion": config.DRAG_REGION,
+            }
 
         # ---- 运行中打开文件：入库并让前端跳过去
         if path == "/api/open-file" and method == "POST":

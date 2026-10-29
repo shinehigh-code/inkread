@@ -43,6 +43,9 @@ export const ICONS = {
   'speaker-wave': '<path d="M11 5.6v12.8L6.8 15H4.6A1.6 1.6 0 0 1 3 13.4v-2.8A1.6 1.6 0 0 1 4.6 9h2.2z"/><path d="M14.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M17.5 7a7 7 0 0 1 0 10"/>',
   pause: '<rect x="7" y="5.5" width="3.4" height="13" rx="1"/><rect x="13.6" y="5.5" width="3.4" height="13" rx="1"/>',
   play: '<path d="M8 5.6l10.5 6.4L8 18.4z"/>',
+  private: '<path d="M12 3.5l7 3v5.2c0 4.3-2.8 7.4-7 8.8-4.2-1.4-7-4.5-7-8.8V6.5z"/><path d="M9.5 12l1.7 1.7 3.6-4"/>',
+  copy: '<rect x="8" y="8" width="11" height="11" rx="1.5"/><path d="M16 8V6.5A1.5 1.5 0 0 0 14.5 5h-9A1.5 1.5 0 0 0 4 6.5v9A1.5 1.5 0 0 0 5.5 17H8"/>',
+  translate: '<path d="M4 6h9M8.5 4v2M6 6c.5 3.2 2.1 5.5 5 7M11.5 6c-.5 3.2-2.1 5.5-5 7M14 18l3.2-8 3.2 8M15.2 15h4"/>',
 };
 
 export function icon(name, size = 18) {
@@ -130,11 +133,12 @@ export function applySettings(s) {
   _settingsState = s;
   document.documentElement.dataset.theme = s.theme || 'paper';
   const st = document.documentElement.style;
-  st.setProperty('--read-size', (s.size || 19) + 'px');
-  st.setProperty('--read-lh', String(s.lineHeight || 1.9));
-  st.setProperty('--read-w', (s.width || 760) + 'px');
+  st.setProperty('--read-size', (s.size || 18) + 'px');
+  st.setProperty('--read-weight', String(s.weight || 400));
+  st.setProperty('--read-lh', String(s.lineHeight || 1.85));
+  st.setProperty('--read-w', (s.width || 780) + 'px');
   st.setProperty('--read-font', FONTS[s.font] || FONTS.song);
-  st.setProperty('--read-para', (s.para ?? 0.9) + 'em');
+  st.setProperty('--read-para', (s.para ?? 0.8) + 'em');
 }
 
 export function patchSettings(patch) {

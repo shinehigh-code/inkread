@@ -63,6 +63,7 @@ export class ComicReader {
     <div class="r-bar">
       <button class="icon-btn" data-act="back" title="返回书架 (Esc)">${icon('back', 17)}</button>
       <div class="r-title" id="rtitle"></div>
+      ${this.meta.private ? '<span class="private-badge" title="本次阅读不加入书架，也不保存进度">隐私阅读</span>' : ''}
       <button class="icon-btn" data-act="fullscreen" title="全屏 (F11)">${icon('fullscreen', 16)}</button>
     </div>
     <div class="comic-stage" id="stage">
@@ -72,7 +73,7 @@ export class ComicReader {
       <button class="zone r" data-act="next" tabindex="-1" aria-label="下一页"></button>
       <div class="comic-nav-hint" id="hint"></div>
     </div>
-    <div class="r-bar btm">
+    <div class="r-bar btm r-bottom">
       <button class="icon-btn pg-btn" data-act="prev" title="上一页">${icon('chev-l', 15)}</button>
       <input type="range" id="pgsld" min="0" max="${Math.max(0, this.total - 1)}" value="${this.page}" title="页码">
       <div class="page-label" id="pglabel"></div>
@@ -89,7 +90,8 @@ export class ComicReader {
     if (this.io) this.io.disconnect();
     this.$stage?.removeEventListener('scroll', this._onScroll);
     if (this._onWheel) this.$stage?.removeEventListener('wheel', this._onWheel);
-    this._saveNow();
+    if (this.meta.private) api.closePrivate(this.meta.id).catch(() => {});
+    else this._saveNow();
     if (this.el) this.el.remove();
   }
 
@@ -209,6 +211,7 @@ export class ComicReader {
   }
 
   _saveNow() {
+    if (this.meta.private) return;
     api.progress(this.meta.id, {
       chapter: 0,
       page: this.page,

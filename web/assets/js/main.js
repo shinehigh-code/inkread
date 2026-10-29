@@ -33,6 +33,7 @@ function shell() {
       </div>
       <div class="side-foot">
         <button class="btn primary block" data-act="add-files">${icon('plus', 14)}<span>添加图书</span></button>
+        <button class="btn ghost block" data-act="private-read" style="margin-top:6px" title="不加入书架，不保存阅读进度">${icon('private', 14)}<span>隐私阅读</span></button>
         <button class="btn ghost block" data-act="add-folder" style="margin-top:6px">${icon('folder', 14)}<span>导入文件夹</span></button>
         <div class="nav-item" data-nav="settings" style="margin-top:6px">${icon('sliders', 17)}<span>设置</span></div>
       </div>
@@ -114,6 +115,25 @@ async function addFolder() {
   await doAdd([folder]);
 }
 
+async function privateRead() {
+  let paths = [];
+  try {
+    paths = await bridge('open_files');
+  } catch (e) {
+    toast('无法打开文件选择窗口');
+    return;
+  }
+  if (!paths || !paths.length) return;
+  try {
+    const res = await api.openPrivate([paths[0]]);
+    const book = res.book;
+    toast('已进入隐私阅读：不会加入书架或保存进度', 3200);
+    location.hash = `#/read/${book.id}`;
+  } catch (e) {
+    toast(e.message || '无法进入隐私阅读');
+  }
+}
+
 async function doAdd(paths) {
   try {
     const res = await api.addBooks(paths);
@@ -136,6 +156,7 @@ const WIN_ACTIONS = {
     bridge('window_action', el.dataset.a).catch(() => {});
   },
   'add-files': addFiles,
+  'private-read': privateRead,
   'add-folder': addFolder,
 };
 
@@ -249,10 +270,13 @@ class SettingsView {
             <select class="sel" id="set-font">${Object.entries(FONT_NAMES).map(([k, v]) => `<option value="${k}" ${s.font === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
           </div>
           <div class="set-line"><div class="sl-label">字号</div>
-            <input type="range" id="set-size" min="14" max="30" step="1" value="${s.size}" style="flex:1"><span class="val" style="font-size:12px;color:var(--text-3);width:28px;text-align:right">${s.size}</span>
+            <input type="range" id="set-size" min="14" max="30" step="1" value="${s.size}" style="flex:1"><span class="val" style="font-size:12px;color:var(--text-3);width:36px;text-align:right">${s.size}</span>
+          </div>
+          <div class="set-line"><div class="sl-label">字重<div class="sl-desc">正文笔画粗细</div></div>
+            <input type="range" id="set-weight" min="300" max="700" step="100" value="${s.weight || 400}" style="flex:1"><span class="val" style="font-size:12px;color:var(--text-3);width:36px;text-align:right">${s.weight || 400}</span>
           </div>
           <div class="set-line"><div class="sl-label">行距</div>
-            <input type="range" id="set-lh" min="1.4" max="2.4" step="0.1" value="${s.lineHeight}" style="flex:1"><span class="val" style="font-size:12px;color:var(--text-3);width:28px;text-align:right">${s.lineHeight}</span>
+            <input type="range" id="set-lh" min="1.4" max="2.4" step="0.05" value="${s.lineHeight}" style="flex:1"><span class="val" style="font-size:12px;color:var(--text-3);width:36px;text-align:right">${s.lineHeight}</span>
           </div>
           <div class="set-line"><div class="sl-label">页宽</div>
             <input type="range" id="set-w" min="520" max="1000" step="20" value="${s.width}" style="flex:1"><span class="val" style="font-size:12px;color:var(--text-3);width:36px;text-align:right">${s.width}</span>
@@ -302,7 +326,7 @@ class SettingsView {
         <div class="set-card">
           <h3>${icon('sliders', 16)}关于</h3>
           <div class="about-line">
-            <b>墨读 InkRead</b> 1.0.0 · 本地电子书与漫画阅读器<br>
+            <b>墨读 InkRead</b> 1.1.0 · 本地电子书与漫画阅读器<br>
             支持格式：TXT / Markdown / EPUB / CBZ / CBR / CB7 / CBT / 图片文件夹<br>
             阅读数据保存在本机，软件不发起任何网络请求，不收集任何信息。
           </div>
@@ -347,6 +371,7 @@ class SettingsView {
   onInput(el) {
     const map = {
       'set-size': ['size', Number],
+      'set-weight': ['weight', Number],
       'set-lh': ['lineHeight', Number],
       'set-w': ['width', Number],
       'set-para': ['para', Number],

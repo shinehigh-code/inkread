@@ -1,5 +1,4 @@
 pywebview
-pillow
 markdown
 bleach
 opencc-python-reimplemented

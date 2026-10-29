@@ -18,11 +18,14 @@ export const api = {
 
   settings: () => request('/api/settings'),
   saveSettings: (patch) => request('/api/settings', { method: 'POST', body: JSON.stringify(patch) }),
+  translate: (text) => request('/api/translate', { method: 'POST', body: JSON.stringify({ text }) }),
 
   library: (sort = 'recent', q = '') =>
     request(`/api/library?sort=${encodeURIComponent(sort)}&q=${encodeURIComponent(q)}`),
   addBooks: (paths) => request('/api/library/add', { method: 'POST', body: JSON.stringify({ paths }) }),
   removeBook: (id) => request('/api/library/remove', { method: 'POST', body: JSON.stringify({ id }) }),
+  openPrivate: (paths) => request('/api/private/open', { method: 'POST', body: JSON.stringify({ paths }) }),
+  closePrivate: (id) => request('/api/private/close', { method: 'POST', body: JSON.stringify({ id }) }),
 
   book: (id) => request(`/api/book/${id}`),
   chapter: (id, n, mode) => request(`/api/book/${id}/chapter/${n}?mode=${encodeURIComponent(mode || 'none')}`),

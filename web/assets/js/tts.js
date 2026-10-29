@@ -138,6 +138,7 @@ export class Speaker {
         this.r.notify('当前环境不支持语音朗读');
         return;
       }
+      this.selectionOnly = false;
       this.prepare();
       if (!this.units.length) {
         this.r.notify('这一章没有可朗读的文字');
@@ -159,6 +160,20 @@ export class Speaker {
     }
   }
 
+  speakText(text) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+    if (!value) return;
+    if (!ttsSupported()) {
+      this.r.notify('当前环境不支持语音朗读');
+      return;
+    }
+    if (this.active) this.stop('selection-replace');
+    this.cleanup();
+    this.units = [{ el: null, text: value }];
+    this.selectionOnly = true;
+    this.play(0);
+  }
+
   play(index) {
     if (!this.units.length) return;
     window.speechSynthesis.cancel();          // 清掉引擎里排队的旧内容
@@ -175,6 +190,10 @@ export class Speaker {
     if (!this.active || token !== this._token) return;
     if (i >= this.units.length) {
       this.done = true;
+      if (this.selectionOnly) {
+        this.stop('selection-end');
+        return;
+      }
       if (!this.r.speakNextChapter()) this.stop('book-end');
       return;
     }
@@ -294,6 +313,7 @@ export class Speaker {
       window.speechSynthesis.cancel();
     } catch (e) { /* 忽略 */ }
     this.cleanup();
+    this.selectionOnly = false;
     this.r.onSpeakState();
     this.r.updateSpeakUI(0, 0);
   }

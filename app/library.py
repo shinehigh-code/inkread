@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import time
 from pathlib import Path
-
-from PIL import Image
 
 from .config import classify, data_dir
 from .handlers import BookError, Registry
@@ -26,6 +23,8 @@ class Library:
         self.file = data_dir() / "library.json"
         self.data = self._load()
         self.registry = Registry(cap=10)
+        # 隐私阅读书籍只存在于当前进程内存中，不写入 library.json。
+        self.private: dict[str, dict] = {}
 
     # ---------------- 持久化
     def _load(self) -> dict:
@@ -66,7 +65,31 @@ class Library:
             self.save()
         return {"added": added, "errors": errors}
 
-    def _scan(self, path: str) -> dict:
+    def open_private(self, paths: list[str]) -> dict:
+        """临时打开文件：只保存在内存，不进入书架，也不写进度或书签。"""
+        added, errors = [], []
+        for raw in paths[:1]:
+            try:
+                resolved = str(Path(raw).resolve())
+                token = f"private:{resolved}:{time.time_ns()}"
+                bid = hashlib.sha1(token.encode("utf-8")).hexdigest()[:12]
+                meta = self._scan(raw, bid=bid, private=True, make_cover=False)
+                self.private[bid] = meta
+                added.append(meta)
+            except BookError as e:
+                errors.append({"path": raw, "error": str(e)})
+            except Exception as e:
+                errors.append({"path": raw, "error": f"无法读取：{e}"})
+        return {"added": added, "errors": errors}
+
+    def close_private(self, bid: str) -> bool:
+        if bid not in self.private:
+            return False
+        self.registry.drop(bid)
+        self.private.pop(bid, None)
+        return True
+
+    def _scan(self, path: str, *, bid: str | None = None, private: bool = False, make_cover: bool = True) -> dict:
         p = Path(path)
         kind = classify(str(p))
         if kind is None:
@@ -74,7 +97,7 @@ class Library:
         if not p.exists():
             raise BookError("文件不存在")
         meta = {
-            "id": book_id(str(p)),
+            "id": bid or book_id(str(p)),
             "path": str(p.resolve()),
             "kind": kind,
             "fmt": p.suffix.lower().lstrip(".") if p.is_file() else "dir",
@@ -86,6 +109,8 @@ class Library:
             "progress": _fresh_progress(),
             "bookmarks": [],
             "has_cover": False,
+            "cover_type": "",
+            "private": bool(private),
         }
         handle = self.registry.get(meta)
         try:
@@ -96,41 +121,49 @@ class Library:
                 meta["pages"] = handle.page_count()
             elif kind in ("txt", "md", "epub"):
                 meta["chapters"] = len(handle.toc())
-            self._make_cover(meta, handle)
+            if make_cover:
+                self._make_cover(meta, handle)
         finally:
             self.registry.drop(meta["id"])  # 扫描只是预览，句柄交还
         return meta
 
     def _make_cover(self, meta: dict, handle):
+        """缓存原始封面字节。
+
+        浏览器本身能解码支持的图片格式，无需在 Python 侧引入 Pillow 做缩放和转码。
+        这样既避免扫描大图时的解码开销，也能显著减小单文件程序体积。
+        """
         data = None
+        ctype = "application/octet-stream"
         try:
             if meta["kind"] == "comic":
-                data, _ctype = handle.page(0)
+                data, ctype = handle.page(0)
             elif meta["kind"] == "epub":
                 got = handle.cover_bytes()
                 if got:
-                    data, _ctype = got
+                    data, ctype = got
             if not data:
                 return
-            img = Image.open(io.BytesIO(data))
-            img = img.convert("RGB")
-            img.thumbnail((360, 520))
-            out = data_dir() / "cache" / "covers" / f"{meta['id']}.png"
-            img.save(out, "PNG", optimize=True)
+            out = data_dir() / "cache" / "covers" / f"{meta['id']}.bin"
+            out.write_bytes(data)
+            meta["cover_type"] = ctype or "application/octet-stream"
             meta["has_cover"] = True
         except Exception:
             meta["has_cover"] = False
+            meta["cover_type"] = ""
 
     def remove(self, bid: str) -> bool:
         if bid not in self.data["books"]:
             return False
         self.registry.drop(bid)
-        cover = data_dir() / "cache" / "covers" / f"{bid}.png"
-        if cover.exists():
-            try:
-                cover.unlink()
-            except Exception:
-                pass
+        covers = data_dir() / "cache" / "covers"
+        for ext in (".bin", ".png"):
+            cover = covers / f"{bid}{ext}"
+            if cover.exists():
+                try:
+                    cover.unlink()
+                except Exception:
+                    pass
         del self.data["books"][bid]
         if bid in self.data["order"]:
             self.data["order"].remove(bid)
@@ -152,15 +185,26 @@ class Library:
         return books
 
     def get(self, bid: str) -> dict | None:
-        return self.data["books"].get(bid)
+        return self.data["books"].get(bid) or self.private.get(bid)
 
     # ---------------- 进度 / 书签
     def touch(self, bid: str):
+        if bid in self.private:
+            return
         b = self.data["books"].get(bid)
         if b:
             b["last_read"] = time.time()
 
     def set_progress(self, bid: str, progress: dict):
+        if bid in self.private:
+            # 隐私阅读不落盘；仅返回规范化后的瞬时位置，便于 API 保持一致。
+            return {
+                "chapter": int(progress.get("chapter", 0)),
+                "page": int(progress.get("page", 0)),
+                "scroll": float(progress.get("scroll", 0.0)),
+                "pct": float(progress.get("pct", 0.0)),
+                "ts": 0.0,
+            }
         b = self.data["books"].get(bid)
         if not b:
             return None
@@ -176,6 +220,8 @@ class Library:
         return b["progress"]
 
     def add_bookmark(self, bid: str, bm: dict) -> list:
+        if bid in self.private:
+            return []
         b = self.data["books"].get(bid)
         if not b:
             return []
@@ -192,6 +238,8 @@ class Library:
         return b["bookmarks"]
 
     def remove_bookmark(self, bid: str, bm_id: str) -> list:
+        if bid in self.private:
+            return []
         b = self.data["books"].get(bid)
         if not b:
             return []

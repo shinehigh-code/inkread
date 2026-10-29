@@ -31,11 +31,24 @@ def main() -> int:
         "--windowed",
         "--name", NAME,
         "--add-data", f"{ROOT / 'web'}{os.pathsep}web",
-        "--collect-all", "webview",           # WebView2 程序集与加载器
-        "--collect-all", "opencc",            # 繁简词典
-        "--collect-submodules", "markdown",
+        "--additional-hooks-dir", str(ROOT / "tools" / "hooks"),
+        "--collect-data", "opencc",               # 仅词典数据，不重复收集源码与元数据
+        "--hidden-import", "markdown.extensions.extra",
+        "--hidden-import", "markdown.extensions.sane_lists",
+        "--hidden-import", "markdown.extensions.toc",
         "--hidden-import", "webview.platforms.edgechromium",
         "--hidden-import", "webview.platforms.winforms",
+        "--optimize", "1",
+        # Windows x64/WebView2 不需要这些可选后端和图片科学计算栈。
+        "--exclude-module", "numpy",
+        "--exclude-module", "PIL",
+        "--exclude-module", "tkinter",
+        "--exclude-module", "webview.platforms.android",
+        "--exclude-module", "webview.platforms.cef",
+        "--exclude-module", "webview.platforms.cocoa",
+        "--exclude-module", "webview.platforms.gtk",
+        "--exclude-module", "webview.platforms.mshtml",
+        "--exclude-module", "webview.platforms.qt",
     ]
     if icon.exists():
         args += ["--icon", str(icon)]

@@ -21,12 +21,14 @@ from .textproc import safe_join
 DEBUG = bool(os.environ.get("INKREAD_DEBUG"))
 
 DEFAULT_SETTINGS = {
+    "settingsVersion": 2,
     "theme": "paper",
     "font": "song",
-    "size": 19,
-    "lineHeight": 1.9,
-    "width": 760,
-    "para": 0.9,
+    "size": 18,
+    "weight": 400,
+    "lineHeight": 1.85,
+    "width": 780,
+    "para": 0.8,
     "mode": "page",
     "convert": "none",
     "comic": {"fit": "fit-height", "spread": "single", "dir": "ltr"},
@@ -47,11 +49,24 @@ class Ctx:
         if f.exists():
             try:
                 data = json.loads(f.read_text("utf-8"))
+                migrated = False
+                # v1 的默认排版若未被用户改过，升级时迁移到更紧凑清晰的新默认值；
+                # 只要其中任一项有自定义，就完整保留用户选择。
+                if int(data.get("settingsVersion") or 1) < 2:
+                    legacy = {"size": 19, "lineHeight": 1.9, "width": 760, "para": 0.9}
+                    untouched = all(data.get(k, v) == v for k, v in legacy.items())
+                    if untouched:
+                        data.update({"size": 18, "lineHeight": 1.85, "width": 780, "para": 0.8})
+                    data.setdefault("weight", 400)
+                    data["settingsVersion"] = 2
+                    migrated = True
                 for k, v in data.items():
                     if isinstance(v, dict) and isinstance(self.settings.get(k), dict):
                         self.settings[k].update(v)
                     else:
                         self.settings[k] = v
+                if migrated:
+                    self.save_settings()
             except Exception:
                 pass
 
@@ -200,6 +215,18 @@ class Handler(BaseHTTPRequestHandler):
 
             return open_file
 
+        # ---- 离线基础翻译（选中文字，不联网）
+        if path == "/api/translate" and method == "POST":
+            def translate_selection(qs, body, p):
+                from .translate import translate
+
+                text = str(body.get("text") or "")
+                if not text.strip():
+                    raise BookError("没有可翻译的文字")
+                return translate(text)
+
+            return translate_selection
+
         # ---- 设置
         if path == "/api/settings":
             if method == "GET":
@@ -240,6 +267,26 @@ class Handler(BaseHTTPRequestHandler):
                 return {"ok": ok}
 
             return remove
+
+        # ---- 隐私阅读：仅在当前进程内临时注册，不进入书架、不写进度或书签
+        if path == "/api/private/open" and method == "POST":
+            def private_open(qs, body, p):
+                paths = body.get("paths") or []
+                if not isinstance(paths, list) or not paths:
+                    raise BookError("没有要打开的文件")
+                result = ctx.lib.open_private([str(x) for x in paths[:1]])
+                if not result["added"]:
+                    msg = result["errors"][0].get("error") if result["errors"] else "无法打开该文件"
+                    raise BookError(msg)
+                return {"ok": True, "book": result["added"][0], "errors": result["errors"]}
+
+            return private_open
+
+        if path == "/api/private/close" and method == "POST":
+            def private_close(qs, body, p):
+                return {"ok": ctx.lib.close_private(str(body.get("id") or ""))}
+
+            return private_close
 
         # ---- 书籍
         m = re.fullmatch(r"/api/book/([0-9a-f]{12})", path)
@@ -299,10 +346,16 @@ class Handler(BaseHTTPRequestHandler):
             bid = m.group(1)
 
             def cover(qs, body, p):
-                f = config.data_dir() / "cache" / "covers" / f"{bid}.png"
-                if not f.is_file():
-                    return b"", "image/png", 404
-                return f.read_bytes(), "image/png"
+                meta = ctx.lib.get(bid) or {}
+                root = config.data_dir() / "cache" / "covers"
+                raw = root / f"{bid}.bin"
+                if raw.is_file():
+                    return raw.read_bytes(), meta.get("cover_type") or "application/octet-stream"
+                # 兼容旧版本已经生成的 PNG 缩略图。
+                legacy = root / f"{bid}.png"
+                if legacy.is_file():
+                    return legacy.read_bytes(), "image/png"
+                return b"", "application/octet-stream", 404
 
             return cover
 
@@ -314,7 +367,8 @@ class Handler(BaseHTTPRequestHandler):
                 meta = ctx.lib.get(bid)
                 if not meta or meta["kind"] != "epub":
                     raise BookError("资源不存在")
-                cache = config.data_dir() / "cache" / f"epub_{bid}"
+                handle = ctx.lib.registry.get(meta)
+                cache = getattr(handle, "cache", config.data_dir() / "cache" / f"epub_{bid}")
                 target = safe_join(str(cache), rel)
                 if not target:
                     raise BookError("非法路径")

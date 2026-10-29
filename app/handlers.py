@@ -7,11 +7,13 @@
 """
 from __future__ import annotations
 
+import atexit
 import mimetypes
 import posixpath
 import re
 import shutil
 import tarfile
+import tempfile
 import zipfile
 from collections import OrderedDict
 from pathlib import Path
@@ -194,11 +196,18 @@ class MdBook:
 class EpubBook:
     kind = "text"
 
-    def __init__(self, path: Path, book_id: str):
+    def __init__(self, path: Path, book_id: str, private: bool = False):
         self.path = path
         self.book_id = book_id
+        self.private = bool(private)
         self.zf = zipfile.ZipFile(path)
-        self.cache = data_dir() / "cache" / f"epub_{book_id}"
+        self.cache = (
+            Path(tempfile.mkdtemp(prefix="inkread-private-"))
+            if self.private
+            else data_dir() / "cache" / f"epub_{book_id}"
+        )
+        if self.private:
+            atexit.register(shutil.rmtree, self.cache, True)
         self.names = {n.replace("\\", "/") for n in self.zf.namelist()}
         self._titles: list[str | None] = []
         self._html_cache: dict[tuple[int, str], dict] = {}
@@ -340,7 +349,7 @@ class EpubBook:
                 self.nav.append((label[:50], src))
 
     def _extract(self):
-        if self.cache.exists():
+        if self.cache.exists() and not self.private:
             return
         self.cache.mkdir(parents=True, exist_ok=True)
         wanted = {unquote(it["href"]).lstrip("/") for it in self.manifest.values()}
@@ -485,6 +494,11 @@ class EpubBook:
         except Exception:
             pass
         self._html_cache.clear()
+        if self.private:
+            try:
+                shutil.rmtree(self.cache, ignore_errors=True)
+            except Exception:
+                pass
 
 
 # ------------------------------------------------------------------ 漫画
@@ -619,7 +633,7 @@ def open_handle(meta: dict):
     if kind == "md":
         return MdBook(path)
     if kind == "epub":
-        return EpubBook(path, meta["id"])
+        return EpubBook(path, meta["id"], private=bool(meta.get("private")))
     if kind == "comic":
         return ComicBook(path, meta["id"])
     raise BookError(f"未知的书籍类型：{kind}")

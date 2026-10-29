@@ -88,6 +88,41 @@ for b in books:
     by_kind.setdefault(b["kind"], []).append(b)
 check("书库含 7 本书", len(books) == 7, str([b["title"] for b in books]))
 
+# 2.1 隐私阅读：临时书籍可读，但不进入书架、不写进度
+library_file = _TESTDATA / "library.json"
+before_private = library_file.read_bytes()
+st, private_res = post("/api/private/open", {"paths": [str(samples / "notes.md")]})
+private_id = str(private_res.get("book", {}).get("id") or "")
+private_info = json.loads(get(f"/api/book/{private_id}")[1]) if private_id else {}
+private_books = json.loads(get("/api/library")[1])["books"]
+check("隐私阅读临时打开", st == 200 and private_info.get("meta", {}).get("private") is True, str(private_res)[:120])
+check("隐私阅读不进入书架", len(private_books) == 7 and all(b["id"] != private_id for b in private_books))
+if private_id:
+    st, _ = post(f"/api/book/{private_id}/progress", {"chapter": 0, "page": 2, "pct": 0.8})
+    check("隐私阅读不写进度", st == 200 and library_file.read_bytes() == before_private)
+    st, closed = post("/api/private/close", {"id": private_id})
+    check("退出后释放隐私书籍", st == 200 and closed.get("ok") is True and get(f"/api/book/{private_id}")[0] == 400)
+
+# 隐私 EPUB 的插图仍可读取，但解析目录在关闭后必须清理。
+st, private_epub_res = post("/api/private/open", {"paths": [str(samples / "demo.epub")]})
+private_epub_id = str(private_epub_res.get("book", {}).get("id") or "")
+private_cache = None
+if private_epub_id:
+    private_ch = json.loads(get(f"/api/book/{private_epub_id}/chapter/0")[1])
+    handle = httpd.ctx.lib.registry._d.get(private_epub_id)
+    private_cache = getattr(handle, "cache", None)
+    st_asset, data_asset, _ = get(f"/api/book/{private_epub_id}/asset/cover.png")
+    check("隐私 EPUB 资源可读", "html" in private_ch and st_asset == 200 and len(data_asset) > 1000)
+    check("隐私 EPUB 使用临时目录", private_cache is not None and Path(private_cache).is_dir(), str(private_cache))
+    post("/api/private/close", {"id": private_epub_id})
+    check("隐私 EPUB 临时目录已清理", private_cache is not None and not Path(private_cache).exists(), str(private_cache))
+
+# 2.2 选中文字的离线基础翻译
+st, tr = post("/api/translate", {"text": "隐私阅读不会保存阅读进度。"})
+check("离线中译英", st == 200 and tr.get("direction") == "中 → 英" and "Private reading" in tr.get("text", ""), str(tr))
+st, tr = post("/api/translate", {"text": "Hello, this is a local reader."})
+check("离线英译中", st == 200 and tr.get("direction") == "英 → 中" and "本地阅读器" in tr.get("text", ""), str(tr))
+
 # 3. GBK 小说
 novel = next((b for b in by_kind.get("txt", []) if b["fmt"] == "txt" and b["title"] == "雾港往事"), None)
 if novel:
@@ -171,6 +206,17 @@ try:
     new_book.unlink()
 except OSError:
     pass
+
+# 11. 设置迁移：旧默认值升级，自定义值保持不变
+from app.server import Ctx  # noqa: E402
+
+settings_file = _TESTDATA / "settings.json"
+settings_file.write_text(json.dumps({"theme": "paper", "size": 19, "lineHeight": 1.9, "width": 760, "para": 0.9}), "utf-8")
+migrated = Ctx().settings
+check("旧版默认排版自动升级", migrated["size"] == 18 and migrated["weight"] == 400 and migrated["width"] == 780)
+settings_file.write_text(json.dumps({"theme": "paper", "size": 22, "lineHeight": 1.9, "width": 760, "para": 0.9}), "utf-8")
+custom = Ctx().settings
+check("旧版自定义排版保持不变", custom["size"] == 22 and custom["lineHeight"] == 1.9 and custom["width"] == 760)
 
 print(f"\n===== {len(passed)} 通过, {len(failed)} 失败 =====")
 if failed:

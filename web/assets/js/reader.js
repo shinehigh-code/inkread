@@ -5,6 +5,40 @@ import { Speaker, ttsSupported, listVoices, onVoicesReady } from './tts.js';
 
 const THEMES = ['paper', 'ink', 'sepia', 'moss', 'night'];
 
+let mathAssetsPromise = null;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const found = document.querySelector(`script[src="${src}"]`);
+    if (found) {
+      if (found.dataset.ready === '1') resolve();
+      else found.addEventListener('load', resolve, { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.addEventListener('load', () => { script.dataset.ready = '1'; resolve(); }, { once: true });
+    script.addEventListener('error', reject, { once: true });
+    document.head.appendChild(script);
+  });
+}
+
+function ensureMathAssets() {
+  if (window.renderMathInElement) return Promise.resolve();
+  if (!mathAssetsPromise) {
+    if (!document.getElementById('katex-style')) {
+      const link = document.createElement('link');
+      link.id = 'katex-style';
+      link.rel = 'stylesheet';
+      link.href = '/assets/vendor/katex/katex.min.css';
+      document.head.appendChild(link);
+    }
+    mathAssetsPromise = loadScript('/assets/vendor/katex/katex.min.js')
+      .then(() => loadScript('/assets/vendor/katex/contrib/auto-render.min.js'));
+  }
+  return mathAssetsPromise;
+}
+
 export class TextReader {
   constructor(app, info) {
     this.app = app;
@@ -24,6 +58,7 @@ export class TextReader {
     this.drawer = null;
     this.rightTab = 'bm';
     this.loading = false;
+    this.selectedText = '';
     this._save = debounce(() => this._saveNow(), 700);
     this._onResize = debounce(() => this.relayout(), 180);
   }
@@ -38,12 +73,13 @@ export class TextReader {
     <div class="r-bar">
       <button class="icon-btn" data-act="back" title="返回书架 (Esc)">${icon('back', 17)}</button>
       <div class="r-title" id="rtitle"></div>
+      ${this.meta.private ? '<span class="private-badge" title="本次阅读不加入书架，也不保存进度">隐私阅读</span>' : ''}
       <button class="icon-btn" data-act="toc" title="目录">${icon('toc', 17)}</button>
       <select class="sel" id="cvt" style="height:28px;font-size:12px;width:84px" title="繁简转换">
         ${Object.entries(CONVERT_NAMES).map(([k, v]) => `<option value="${k}" ${this.s.convert === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
       <button class="icon-btn" data-act="search" title="搜索 (Ctrl+F)">${icon('search', 17)}</button>
-      <button class="icon-btn" data-act="bookmark" title="添加书签">${icon('bookmark', 17)}</button>
+      ${this.meta.private ? '' : `<button class="icon-btn" data-act="bookmark" title="添加书签">${icon('bookmark', 17)}</button>`}
       <button class="icon-btn" data-act="tts" title="语音朗读">${icon('speaker', 17)}</button>
       <button class="icon-btn" data-act="font" title="阅读设置">${icon('type', 17)}</button>
       <button class="icon-btn" data-act="fullscreen" title="全屏 (F11)">${icon('fullscreen', 16)}</button>
@@ -57,6 +93,19 @@ export class TextReader {
       <div class="comic-loading" id="loading" style="display:none"><div class="spin"></div></div>
     </div>
 
+    <div class="selection-menu" id="selmenu" hidden>
+      <div class="selection-actions">
+        <button data-act="sel-speak" title="朗读选中文字">${icon('speaker', 14)}<span>朗读</span></button>
+        <button data-act="sel-translate" title="使用本地基础词库中英互译">${icon('translate', 14)}<span>中英互译</span></button>
+        <button data-act="sel-copy" title="复制选中文字">${icon('copy', 14)}<span>复制</span></button>
+      </div>
+      <div class="selection-result" id="selresult" hidden>
+        <div class="selection-result-head"><span id="seldir">离线翻译</span><button data-act="sel-close" title="关闭">${icon('close', 12)}</button></div>
+        <div class="selection-result-text" id="seltext"></div>
+        <div class="selection-result-note" id="selnote">使用本地基础词库，文字不会上传。</div>
+      </div>
+    </div>
+
     <div class="tts-bar" id="ttsbar" hidden>
       <button class="icon-btn" data-act="tts-toggle" title="暂停">${icon('pause', 15)}</button>
       <button class="icon-btn" data-act="tts-prev" title="上一句">${icon('chev-l', 15)}</button>
@@ -66,12 +115,17 @@ export class TextReader {
       <button class="icon-btn" data-act="tts-stop" title="停止朗读">${icon('close', 15)}</button>
     </div>
 
-    <div class="r-bar btm">
-      <button class="icon-btn pg-btn" data-act="prev-ch" title="上一章">${icon('chev-l', 15)}</button>
-      <div class="ch-name" id="chname"></div>
-      <input type="range" id="pgsld" min="0" max="1000" value="0" title="阅读进度">
+    <div class="r-bar btm r-bottom">
+      <button class="chapter-nav" data-act="prev-ch" title="快速跳到上一章">${icon('chev-l', 15)}<span>上一章</span></button>
+      <button class="chapter-current" data-act="toc" title="打开目录，快速选择章节">
+        <span class="chapter-index" id="chindex"></span>
+        <span class="ch-name" id="chname"></span>
+      </button>
+      <div class="chapter-progress">
+        <input type="range" id="pgsld" min="0" max="1000" value="0" title="拖动调整当前章内的阅读位置" aria-label="当前章阅读位置">
+      </div>
       <div class="page-label" id="pglabel"></div>
-      <button class="icon-btn pg-btn" data-act="next-ch" title="下一章">${icon('chev-r', 15)}</button>
+      <button class="chapter-nav" data-act="next-ch" title="快速跳到下一章"><span>下一章</span>${icon('chev-r', 15)}</button>
     </div>
 
     <div class="drawer left" id="toc-drawer">
@@ -99,7 +153,8 @@ export class TextReader {
       <div class="pop-row"><label>字形</label>
         <select class="sel" id="f-font">${Object.entries(FONT_NAMES).map(([k, v]) => `<option value="${k}" ${this.s.font === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="pop-row"><label>字号</label><input type="range" id="f-size" min="14" max="30" value="${this.s.size}"><span class="val" id="v-size">${this.s.size}</span></div>
-      <div class="pop-row"><label>行距</label><input type="range" id="f-lh" min="1.4" max="2.4" step="0.1" value="${this.s.lineHeight}"><span class="val" id="v-lh">${this.s.lineHeight}</span></div>
+      <div class="pop-row"><label>字重</label><input type="range" id="f-weight" min="300" max="700" step="100" value="${this.s.weight || 400}"><span class="val" id="v-weight">${this.s.weight || 400}</span></div>
+      <div class="pop-row"><label>行距</label><input type="range" id="f-lh" min="1.4" max="2.4" step="0.05" value="${this.s.lineHeight}"><span class="val" id="v-lh">${this.s.lineHeight}</span></div>
       <div class="pop-row"><label>页宽</label><input type="range" id="f-w" min="520" max="1000" step="20" value="${this.s.width}"><span class="val" id="v-w">${this.s.width}</span></div>
       <div class="pop-row"><label>段距</label><input type="range" id="f-para" min="0" max="2" step="0.1" value="${this.s.para}"><span class="val" id="v-para">${this.s.para}</span></div>
       <h4>朗读</h4>
@@ -131,8 +186,15 @@ export class TextReader {
     this.$flow = this.$('#flow');
 
     this.$flow.addEventListener('click', (e) => this.onFlowClick(e));
+    this.$('#selmenu').addEventListener('mousedown', (e) => e.preventDefault());
+    this._onSelectionChange = () => requestAnimationFrame(() => this.updateSelectionMenu());
+    document.addEventListener('selectionchange', this._onSelectionChange);
     this.$pv.addEventListener('scroll', () => {
-      if (this.s.mode === 'scroll') this._save();
+      if (this.s.mode === 'scroll') {
+        this.hideSelectionMenu();
+        this.updateChrome();
+        this._save();
+      }
     });
     this.el.addEventListener('mousemove', () => this.poke());
     window.addEventListener('resize', this._onResize);
@@ -273,8 +335,10 @@ export class TextReader {
   destroy() {
     clearTimeout(this._imt);
     window.removeEventListener('resize', this._onResize);
+    document.removeEventListener('selectionchange', this._onSelectionChange);
     if (this.speaker) this.speaker.stop('destroy');
-    this._saveNow();
+    if (this.meta.private) api.closePrivate(this.meta.id).catch(() => {});
+    else this._saveNow();
     if (this.el) this.el.remove();
   }
 
@@ -391,12 +455,29 @@ export class TextReader {
 
   // ---------------------------------------------------------------- 状态显示
 
+  withinPct() {
+    if (this.s.mode === 'scroll') {
+      return this.$pv.scrollTop / Math.max(1, this.$pv.scrollHeight - this.$pv.clientHeight);
+    }
+    return this.pages > 1 ? this.curPage / (this.pages - 1) : 1;
+  }
+
   pct() {
-    const within = this.s.mode === 'scroll'
-      ? this.$pv.scrollTop / Math.max(1, this.$pv.scrollHeight - this.$pv.clientHeight)
-      : (this.pages > 1 ? this.curPage / (this.pages - 1) : 1);
+    const within = this.withinPct();
     if (this.total <= 1) return Math.min(1, Math.max(0, within));
     return Math.min(1, Math.max(0, (this.ch + within) / this.total));
+  }
+
+  seekWithin(value, save = false) {
+    const within = Math.min(1, Math.max(0, Number(value) / 1000));
+    if (this.s.mode === 'scroll') {
+      const max = Math.max(0, this.$pv.scrollHeight - this.$pv.clientHeight);
+      this.$pv.scrollTop = within * max;
+      this.updateChrome();
+    } else {
+      this.goPage(Math.round(within * Math.max(0, this.pages - 1)), !save);
+    }
+    if (save) this._save();
   }
 
   updateChrome() {
@@ -404,18 +485,26 @@ export class TextReader {
     if (t) t.innerHTML = `<b>${esc(this.meta.title)}</b> <span style="color:var(--text-3)">·</span> ${esc(this.chTitle || '')}`;
     const cn = this.$('#chname');
     if (cn) cn.textContent = this.chTitle || '';
+    const ci = this.$('#chindex');
+    if (ci) ci.textContent = `${this.ch + 1} / ${this.total}`;
+    const bookPct = Math.round(this.pct() * 100);
     const pl = this.$('#pglabel');
     if (pl) pl.textContent = this.s.mode === 'scroll'
-      ? `${Math.round(this.pct() * 100)}%`
-      : `${this.curPage + 1} / ${this.pages}`;
+      ? `本章 ${Math.round(this.withinPct() * 100)}% · 全书 ${bookPct}%`
+      : `${this.curPage + 1} / ${this.pages} 页 · 全书 ${bookPct}%`;
     const sl = this.$('#pgsld');
-    if (sl && document.activeElement !== sl) sl.value = String(Math.round(this.pct() * 1000));
+    if (sl && document.activeElement !== sl) sl.value = String(Math.round(this.withinPct() * 1000));
+    const prev = this.$('[data-act="prev-ch"]');
+    const next = this.$('[data-act="next-ch"]');
+    if (prev) prev.disabled = this.ch <= 0;
+    if (next) next.disabled = this.ch >= this.total - 1;
     this.el.querySelectorAll('.toc-item').forEach((n) => {
       n.classList.toggle('on', Number(n.dataset.i) === this.ch);
     });
   }
 
   _saveNow() {
+    if (this.meta.private) return;
     const max = this.$pv.scrollHeight - this.$pv.clientHeight;
     api.progress(this.meta.id, {
       chapter: this.ch,
@@ -456,6 +545,10 @@ export class TextReader {
   }
 
   async addBookmark() {
+    if (this.meta.private) {
+      toast('隐私阅读不会保存书签');
+      return;
+    }
     const label = this.s.mode === 'scroll'
       ? `${this.chTitle} · ${Math.round(this.pct() * 100)}%`
       : `${this.chTitle} · 第 ${this.curPage + 1} 页`;
@@ -562,6 +655,105 @@ export class TextReader {
     this.relayout();
   }
 
+  // ---------------------------------------------------------------- 选中文字操作
+
+  updateSelectionMenu() {
+    const menu = this.$('#selmenu');
+    if (!menu || !this.$flow) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount < 1 || sel.isCollapsed) {
+      this.hideSelectionMenu();
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const node = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+      ? range.commonAncestorContainer.parentElement
+      : range.commonAncestorContainer;
+    if (!node || !this.$flow.contains(node)) {
+      this.hideSelectionMenu();
+      return;
+    }
+    const text = sel.toString().replace(/\s+/g, ' ').trim();
+    if (!text) {
+      this.hideSelectionMenu();
+      return;
+    }
+    const changed = text !== this.selectedText;
+    this.selectedText = text.slice(0, 2000);
+    const rect = range.getBoundingClientRect();
+    const host = this.el.getBoundingClientRect();
+    if (!rect.width && !rect.height) {
+      this.hideSelectionMenu();
+      return;
+    }
+    menu.hidden = false;
+    if (changed) this.$('#selresult').hidden = true;
+    const x = Math.min(host.width - 12, Math.max(12, rect.left - host.left + rect.width / 2));
+    const above = rect.top - host.top - 10;
+    if (above > 54) {
+      menu.style.left = `${x}px`;
+      menu.style.top = `${above}px`;
+      menu.style.transform = 'translate(-50%, -100%)';
+    } else {
+      menu.style.left = `${x}px`;
+      menu.style.top = `${rect.bottom - host.top + 10}px`;
+      menu.style.transform = 'translate(-50%, 0)';
+    }
+    this.pokeClear();
+  }
+
+  hideSelectionMenu(clear = false) {
+    const menu = this.$('#selmenu');
+    if (menu) menu.hidden = true;
+    if (clear) {
+      this.selectedText = '';
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+    }
+  }
+
+  async copySelection() {
+    const text = this.selectedText;
+    if (!text) return;
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    toast('已复制所选文字');
+    this.hideSelectionMenu(true);
+  }
+
+  async translateSelection() {
+    const text = this.selectedText;
+    if (!text) return;
+    const result = this.$('#selresult');
+    const out = this.$('#seltext');
+    const note = this.$('#selnote');
+    result.hidden = false;
+    out.textContent = '正在离线翻译…';
+    note.textContent = '文字只在本机处理，不会上传。';
+    try {
+      const data = await api.translate(text);
+      this.$('#seldir').textContent = data.direction || '中英互译';
+      out.textContent = data.text || '本地词库没有找到对应译文';
+      note.textContent = data.limited
+        ? '本地基础词库未覆盖部分词句，未识别内容会保留原文。'
+        : '使用本地基础词库，文字不会上传。';
+    } catch (e) {
+      out.textContent = e.message || '翻译失败';
+      note.textContent = '没有向网络发送任何内容。';
+    }
+  }
+
   // ---------------------------------------------------------------- 链接与公式
 
   onFlowClick(e) {
@@ -599,16 +791,21 @@ export class TextReader {
   }
 
   renderMath() {
-    if (!window.renderMathInElement) return;
-    try {
-      window.renderMathInElement(this.$flow, {
-        delimiters: [
-          { left: '$$', right: '$$', display: true },
-          { left: '$', right: '$', display: false },
-        ],
-        throwOnError: false,
-      });
-    } catch { /* 公式渲染失败不影响阅读 */ }
+    const source = this.$flow.textContent || '';
+    if (!source.includes('$') && !source.includes('\\(') && !source.includes('\\[')) return;
+    ensureMathAssets().then(() => {
+      if (!window.renderMathInElement || !this.$flow?.isConnected) return;
+      try {
+        window.renderMathInElement(this.$flow, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+          ],
+          throwOnError: false,
+        });
+        if (this.s.mode !== 'scroll') this.relayout();
+      } catch { /* 公式渲染失败不影响阅读 */ }
+    }).catch(() => { /* 资源加载失败不影响普通阅读 */ });
   }
 
   // ---------------------------------------------------------------- 沉浸模式
@@ -644,6 +841,15 @@ export class TextReader {
         break;
       case 'search': this.openRight('sr'); break;
       case 'bookmark': this.addBookmark(); break;
+      case 'sel-speak':
+        if (this.selectedText) {
+          this.speaker.speakText(this.selectedText);
+          this.hideSelectionMenu(true);
+        }
+        break;
+      case 'sel-translate': this.translateSelection(); break;
+      case 'sel-copy': this.copySelection(); break;
+      case 'sel-close': this.hideSelectionMenu(true); break;
       case 'tts':
         if (this.speaker.active) this.speaker.stop('user');
         else {
@@ -747,22 +953,15 @@ export class TextReader {
       this.saveTts({ voice: el.value });
       if (this.speaker && this.speaker.active) this.speaker.play(this.speaker.idx);
     } else if (el.id === 'pgsld') {
-      const o = Number(el.value) / 1000;
-      const pos = o * this.total;
-      const ch = Math.min(this.total - 1, Math.floor(pos));
-      this.loadChapter(ch, 0).then(() => {
-        const within = pos - ch;
-        if (this.s.mode === 'scroll') {
-          const max = this.$pv.scrollHeight - this.$pv.clientHeight;
-          this.$pv.scrollTop = within * max;
-        } else {
-          this.goPage(Math.round(within * (this.pages - 1)));
-        }
-      });
+      this.seekWithin(el.value, true);
     }
   }
 
   onInput(el) {
+    if (el.id === 'pgsld') {
+      this.seekWithin(el.value, false);
+      return;
+    }
     const ttsMap = {
       't-rate': ['rate', 'v-rate'],
       't-pitch': ['pitch', 'v-pitch'],
@@ -779,6 +978,7 @@ export class TextReader {
     }
     const map = {
       'f-size': ['size', 'v-size', false],
+      'f-weight': ['weight', 'v-weight', false],
       'f-lh': ['lineHeight', 'v-lh', true],
       'f-w': ['width', 'v-w', false],
       'f-para': ['para', 'v-para', true],
